@@ -1,0 +1,359 @@
+---
+title: "FDA Review 2"
+author: "Team L"
+date: "2024-10-05"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(readr)
+```
+
+```{r}
+dataset1 <- read.csv("Life Expectancy Data.csv")
+dataset2 <- read.csv("unsdg_2002_2021.csv")
+```
+
+```{r}
+colnames(dataset1)
+```
+```{r}
+colnames(dataset2)
+```
+```{r}
+#Select relevant columns from Dataset 1 (Life Expectancy Data)
+dataset1_selected <- dataset1 %>%
+  select(Country, Year, Life.expectancy, Adult.Mortality, infant.deaths, 
+         under.five.deaths, GDP, Income.composition.of.resources, 
+         Schooling, Total.expenditure, percentage.expenditure)
+```
+
+```{r}
+#Select relevant columns from Dataset 2 (unsdg_2002_2021)
+dataset2_selected <- dataset2 %>%
+  select(country, dt_year, mortality_rate_perc, 
+         greenhousegas_emissione_mtco2equivalent, 
+         renewable_energy_share_on_the_total_energy_consumption, 
+         total_government_revenue_proportion_of_gdp_perc, 
+         fossilfuel_subsidies_consumption_and_production_billionusd, 
+         education_for_sustainable_development)
+```
+
+```{r}
+#Rename 'country' and 'dt_year' to 'Country' and 'Year' for merging
+dataset2_renamed <- dataset2_selected %>%
+  rename(Country = country, Year = dt_year)
+
+#Merge the two datasets based on 'Country' and 'Year'
+combined_data <- merge(dataset1_selected, dataset2_renamed, by = c("Country", "Year"), all = TRUE)
+```
+
+```{r}
+head(combined_data)
+```
+```{r}
+num_records <- nrow(combined_data)
+cat("Number of records (rows):", num_records, "\n")
+```
+
+```{r}
+#Check for missing values
+total_missing_values <- sum(is.na(combined_data))
+cat("Total missing values in the combined dataset:", total_missing_values, "\n")
+```
+```{r}
+#Check the percentage of missing values for each column
+missing_percentage <- sapply(combined_data, function(x) sum(is.na(x)) / nrow(combined_data) * 100)
+missing_percentage
+
+```
+```{r}
+#Install the VIM package for KNN imputation
+#install.packages("VIM")
+
+# Load the library
+library(VIM)
+
+# Perform KNN imputation
+combined_data <- kNN(combined_data, k = 5)
+
+cat("Finished.")
+```
+
+
+```{r}
+# Drop columns with more than 80% missing values
+threshold <- 80
+cols_to_drop <- names(missing_percentage[missing_percentage > threshold])
+combined_data <- combined_data %>%
+  select(-one_of(cols_to_drop))
+
+cat("Dropped columns:", cols_to_drop, "\n")
+
+```
+
+```{r}
+# Check for any remaining missing values
+sapply(combined_data, function(x) sum(is.na(x)))
+```
+```{r}
+# Check the number of records (rows) in the dataset
+num_records <- nrow(combined_data)
+cat("Number of records (rows):", num_records, "\n")
+
+```
+```{r}
+colnames(combined_data)
+```
+```{r}
+head(combined_data)
+```
+```{r}
+# Detect and Cap Outliers using IQR method
+# Define a function to cap outliers (already provided)
+cap_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  x <- ifelse(x < lower_bound, lower_bound, x)
+  x <- ifelse(x > upper_bound, upper_bound, x)
+  return(x)
+}
+
+# Apply the function to each numeric column in the combined_data
+combined_data <- combined_data %>%
+  mutate(across(where(is.numeric), cap_outliers))
+
+# View a summary of the capped dataset
+summary(combined_data)
+
+```
+
+```{r}
+library(ggplot2)
+
+# Create boxplots for selected numeric columns before and after capping outliers
+ggplot(combined_data, aes(x = "", y = Life.expectancy)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Life Expectancy After Capping Outliers")
+
+ggplot(combined_data, aes(x = "", y = Adult.Mortality)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Adult Mortality After Capping Outliers")
+
+```
+
+```{r}
+#Linear Regression Model
+```
+
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Assuming 'combined_data' is your dataset name
+data <- combined_data %>%
+  select(-Country, -Year)  # Exclude the country and year columns
+
+response_var <- "Life.expectancy"
+X <- data %>% select(-one_of(response_var))
+y <- data[[response_var]]
+
+# Split the data into training and testing sets (80-20 split)
+train_index <- sample(seq_len(nrow(data)), size = 0.8 * nrow(data))
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+# Implement a linear regression model
+lm_model <- lm(Life.expectancy ~ ., data = train_data)
+
+# Make predictions on the test set
+lm_predictions <- predict(lm_model, test_data)
+
+# Calculate metrics for Linear Regression
+lm_rmse <- sqrt(mean((test_data$Life.expectancy - lm_predictions)^2))
+lm_r_squared <- cor(test_data$Life.expectancy, lm_predictions)^2
+lm_mse <- mean((test_data$Life.expectancy - lm_predictions)^2)
+lm_mape <- mean(abs((test_data$Life.expectancy - lm_predictions) / test_data$Life.expectancy)) * 100
+
+# Print the results
+cat("Linear Regression RMSE:", lm_rmse, "\n")
+cat("Linear Regression R-squared:", lm_r_squared, "\n")
+cat("Linear Regression MSE:", lm_mse, "\n")
+cat("Linear Regression MAPE:", lm_mape, "%\n")
+
+```
+```{r}
+#The linear regression model provides a reasonably accurate prediction of life expectancy. With an RMSE of 4.08, the model’s predictions are, on average, around 4 years off from actual values. An R-squared of 0.80 indicates that 80% of the variation in life expectancy is explained by the model, suggesting a solid fit to the data. The Mean Squared Error (MSE) of 16.63 confirms that prediction errors are generally low, and the Mean Absolute Percentage Error (MAPE) of 4.28% shows that predictions are, on average, within 4.28% of actual values. Overall, the model performs well, though there may be room for improvement through further optimization or by adding additional predictive features.
+```
+
+```{r}
+# Create the line chart with smoothing
+ggplot(plot_data, aes(x = Index)) +
+  geom_smooth(aes(y = Actual, color = "Actual"), method = "loess", se = FALSE, size = 1.2) +  # Smooth actual life expectancy
+  geom_smooth(aes(y = Predicted, color = "Predicted"), method = "loess", linetype = "dashed", se = FALSE, size = 1.2) + # Smooth predicted life expectancy
+  labs(title = "Linear Regression: Smoothed Actual vs Predicted Life Expectancy", 
+       x = "Index", 
+       y = "Life Expectancy") +
+  scale_color_manual("", 
+                     breaks = c("Actual", "Predicted"),
+                     values = c("Actual" = "blue", "Predicted" = "red")) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+
+```
+
+
+```{r}
+#Random Forest Model
+```
+
+```{r}
+library(randomForest)
+```
+
+```{r}
+# Implement a random forest model
+rf_model <- randomForest(Life.expectancy ~ ., data = train_data)
+
+# Make predictions on the test set
+rf_predictions <- predict(rf_model, test_data)
+
+# Calculate metrics for Random Forest
+rf_rmse <- sqrt(mean((test_data$Life.expectancy - rf_predictions)^2))
+rf_r_squared <- cor(test_data$Life.expectancy, rf_predictions)^2
+rf_mse <- mean((test_data$Life.expectancy - rf_predictions)^2)
+rf_mape <- mean(abs((test_data$Life.expectancy - rf_predictions) / test_data$Life.expectancy)) * 100
+
+cat("Random Forest RMSE:", rf_rmse, "\n")
+cat("Random Forest R-squared:", rf_r_squared, "\n")
+cat("Random Forest MSE:", rf_mse, "\n")
+cat("Random Forest MAPE:", rf_mape, "%\n")
+
+```
+```{r}
+#The random forest model demonstrates excellent predictive performance for life expectancy. With an RMSE of 1.61, the model's predictions are, on average, just 1.61 years off from the actual values. The R-squared value of 0.97 indicates that the model explains 97% of the variation in life expectancy, suggesting an outstanding fit to the data. The MSE of 2.58 confirms that the model's errors are minimal, and the MAPE of 1.20% shows that the predictions are, on average, within just 1.20% of the actual values. Overall, the random forest model delivers highly accurate and reliable predictions.
+```
+
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Prepare the data for plotting
+plot_data_rf <- data.frame(Index = 1:length(test_data$Life.expectancy),
+                            Actual = test_data$Life.expectancy,
+                            Predicted = rf_predictions)
+
+# Create the smoothed line chart
+ggplot(plot_data_rf, aes(x = Index)) +
+  geom_smooth(aes(y = Actual, color = "Actual"), method = "loess", se = FALSE, size = 1.2) +  # Smooth actual life expectancy
+  geom_smooth(aes(y = Predicted, color = "Predicted"), method = "loess", linetype = "dashed", se = FALSE, size = 1.2) + # Smooth predicted life expectancy
+  labs(title = "Random Forest: Smoothed Actual vs Predicted Life Expectancy", 
+       x = "Index", 
+       y = "Life Expectancy") +
+  scale_color_manual("", 
+                     breaks = c("Actual", "Predicted"),
+                     values = c("Actual" = "blue", "Predicted" = "red")) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+```
+```{r}
+#Hybrid Model
+#In the hybrid model, a Weighted Average Ensemble approach was implemented by combining the predictions from two models—Linear Regression and Random Forest. Each model’s predictions were assigned equal weights of 0.5, allowing their outputs to contribute equally to the final prediction. This method allows for a balanced contribution from both models, leveraging their strengths. The resulting hybrid predictions were then evaluated using performance metrics such as RMSE, R-squared, MSE, and MAPE, offering insights into the model’s accuracy. Finally, a smoother line chart was generated to visually compare the actual life expectancy values with the predicted ones.
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+
+# Assuming 'combined_data' is your dataset name
+data <- combined_data %>%
+  select(-Country, -Year)  # Exclude the country and year columns
+
+response_var <- "Life.expectancy"
+X <- data %>% select(-one_of(response_var))
+y <- data[[response_var]]
+
+# Split the data into training and testing sets (80-20 split)
+set.seed(123)
+train_index <- sample(seq_len(nrow(data)), size = 0.8 * nrow(data))
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+# Implement a linear regression model
+lm_model <- lm(Life.expectancy ~ ., data = train_data)
+
+# Implement a random forest model
+rf_model <- randomForest(Life.expectancy ~ ., data = train_data)
+
+# Make predictions on the test set using each model
+lm_predictions <- predict(lm_model, test_data)
+rf_predictions <- predict(rf_model, test_data)
+
+# Weighted average ensemble (adjust weights as needed)
+weights <- c(0.5, 0.5)  # Adjust the weights for models if necessary
+hybrid_predictions <- (weights[1] * lm_predictions + weights[2] * rf_predictions)
+
+# Evaluate the hybrid model
+hybrid_rmse <- sqrt(mean((test_data$Life.expectancy - hybrid_predictions)^2))
+hybrid_r_squared <- cor(test_data$Life.expectancy, hybrid_predictions)^2
+
+cat("Weighted Average Ensemble RMSE:", hybrid_rmse, "\n")
+cat("Weighted Average Ensemble R-squared:", hybrid_r_squared, "\n")
+
+# Calculate Mean Squared Error (MSE)
+hybrid_mse <- mean((test_data$Life.expectancy - hybrid_predictions)^2)
+
+# Calculate Mean Absolute Percentage Error (MAPE)
+hybrid_mape <- mean(abs((test_data$Life.expectancy - hybrid_predictions) / test_data$Life.expectancy)) * 100
+
+# Print the results
+cat("Mean Squared Error (MSE):", hybrid_mse, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", hybrid_mape, "%\n")
+```
+```{r}
+#The hybrid model, utilizing a weighted average ensemble of Linear Regression and Random Forest, demonstrates strong performance. With an RMSE of 2.58, it indicates relatively low prediction error. The R-squared value of 0.92 suggests that the model explains approximately 92% of the variance in life expectancy, indicating a good fit. The Mean Squared Error (MSE) of 6.68 further supports the model's accuracy, and the Mean Absolute Percentage Error (MAPE) of 2.56% indicates that the model's predictions are on average very close to the actual values. Overall, the hybrid model provides highly accurate and reliable predictions for life expectancy.
+```
+
+
+```{r}
+# Plot actual vs predicted values
+actual_values <- test_data$Life.expectancy
+predicted_values <- hybrid_predictions
+
+# Create a data frame for plotting
+plot_data <- data.frame(Index = 1:length(actual_values),
+                        Actual = actual_values,
+                        Predicted = predicted_values)
+
+# Create the smoother line chart
+ggplot(plot_data, aes(x = Index)) +
+  geom_smooth(aes(y = Actual, color = "Actual"), se = FALSE, size = 1.2) +    # Actual life expectancy (smoothed)
+  geom_smooth(aes(y = Predicted, color = "Predicted"), se = FALSE, linetype = "dashed", size = 1.2) +   # Predicted life expectancy (smoothed)
+  labs(title = "Actual vs Predicted Life Expectancy", 
+       x = "Index", 
+       y = "Life Expectancy") +
+  scale_color_manual("", 
+                     breaks = c("Actual", "Predicted"),
+                     values = c("Actual" = "blue", "Predicted" = "red")) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+```
+
